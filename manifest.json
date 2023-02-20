@@ -12,7 +12,7 @@
                 "version": "2.0.0.0",
                 "changelog": "Switch to using HLS tiles instead of BIF images.",
                 "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/iwalton3/jellyscrub/releases/download/2.0.0.0/Jellyscrub-v2.0.0.0.zip",
+                "sourceUrl": "https://github.com/iwalton3/jellyscrub/releases/download/v2.0.0.0/Jellyscrub-v2.0.0.0.zip",
                 "checksum": "21e3cb2eee36e24de3f6e83879ade383",
                 "timestamp": "2023-02-20T03:14:22Z"
             }
