@@ -13,11 +13,11 @@ using MediaBrowser.Controller.Configuration;
 namespace Nick.Plugin.Jellyscrub.ScheduledTasks;
 
 /// <summary>
-/// Class BIFGenerationTask.
+/// Class TilesGenerationTask.
 /// </summary>
-public class BIFGenerationTask : IScheduledTask
+public class TilesGenerationTask : IScheduledTask
 {
-    private readonly ILogger<BIFGenerationTask> _logger;
+    private readonly ILogger<TilesGenerationTask> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
@@ -28,9 +28,9 @@ public class BIFGenerationTask : IScheduledTask
     private readonly IServerConfigurationManager _configurationManager;
     private readonly EncodingHelper _encodingHelper;
 
-    public BIFGenerationTask(
+    public TilesGenerationTask(
         ILibraryManager libraryManager,
-        ILogger<BIFGenerationTask> logger,
+        ILogger<TilesGenerationTask> logger,
         ILoggerFactory loggerFactory,
         IFileSystem fileSystem,
         IApplicationPaths appPaths,
@@ -53,13 +53,13 @@ public class BIFGenerationTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "Generate BIF Files";
+    public string Name => "Generate HLS trickplay tiles";
 
     /// <inheritdoc />
-    public string Key => "GenerateBIFFiles";
+    public string Key => "GenerateTileFiles";
 
     /// <inheritdoc />
-    public string Description => "Generates BIF files to be used for jellyscrub scrubbing preview.";
+    public string Description => "Generates HLS trickplay tile files to be used for jellyscrub scrubbing preview.";
 
     /// <inheritdoc />
     public string Category => _localization.GetLocalizedString("TasksLibraryCategory");
@@ -92,7 +92,7 @@ public class BIFGenerationTask : IScheduledTask
 
         foreach (var item in items)
         {
-            if (!Providers.BIFMetadataProvider.EnableForItem(item, _fileSystem))
+            if (!Providers.TilesMetadataProvider.EnableForItem(item, _fileSystem))
             {
                 continue;
             }

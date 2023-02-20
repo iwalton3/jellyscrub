@@ -77,7 +77,7 @@ public class TrickplayController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Produces("application/javascript")]
-    public async Task<ActionResult> GetClientScript()
+    public ActionResult GetClientScript()
     {
         var scriptStream = _assembly.GetManifestResourceStream(_trickplayScriptPath);
 
@@ -102,7 +102,7 @@ public class TrickplayController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [Produces(MediaTypeNames.Application.Json)]
-    public async Task<ActionResult> GetManifest([FromRoute, Required] Guid itemId)
+    public ActionResult GetManifest([FromRoute, Required] Guid itemId)
     {
         var item = _libraryManager.GetItemById(itemId);
 
@@ -115,7 +115,7 @@ public class TrickplayController : ControllerBase
             }
             else if (_config.OnDemandGeneration)
             {
-                new VideoProcessor(_loggerFactory, _loggerFactory.CreateLogger<VideoProcessor>(), _mediaEncoder, _configurationManager, _fileSystem, _appPaths, _libraryMonitor, _encodingHelper)
+                _= new VideoProcessor(_loggerFactory, _loggerFactory.CreateLogger<VideoProcessor>(), _mediaEncoder, _configurationManager, _fileSystem, _appPaths, _libraryMonitor, _encodingHelper)
                     .Run(item, CancellationToken.None);
                 return StatusCode(503);
             }
@@ -125,37 +125,68 @@ public class TrickplayController : ControllerBase
     }
 
     /// <summary>
-    /// Gets specific BIF file for a video.
+    /// Gets specific HLS playlist file for a video.
+    /// You don't actually need to request this if you know how to request the tiles directly using the Manifest.
+    /// (This spares client developers from having to parse the HLS playlist file if they don't already have native HLS support.)
     /// </summary>
     /// <param name="itemId">Item id.</param>
-    /// <param name="width">With resolution of BIF file.</param>
-    /// <response code="200">BIF file successfully found and returned.</response>
-    /// <response code="404">BIF file not found.</response>
+    /// <param name="width">Width resolution of tiles.</param>
+    /// <response code="200">Tiles successfully found and returned.</response>
+    /// <response code="404">Tiles not found.</response>
     /// <response code="503">If on-demand generation is enabled, this indicates the server hasn't completed generation.</response>
-    /// <returns>Associated BIF file, or a <see cref="NotFoundResult"/>.</returns>
-    [HttpGet("{itemId}/{width}/GetBIF")]
-    [HttpGet("{itemId}/{width}/GetBIF.bif")]
+    /// <returns>Associated Tiles HLS playlist file, or a <see cref="NotFoundResult"/>.</returns>
+    [HttpGet("{itemId}/{width}/tiles.m3u8")]
     [Authorize(Policy = "DefaultAuthorization")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    [Produces(MediaTypeNames.Application.Octet)]
-    public async Task<ActionResult> GetBIF([FromRoute, Required] Guid itemId, [FromRoute, Required] int width)
+    [Produces("application/x-mpegURL")]
+    public ActionResult GetTilesPlaylist([FromRoute, Required] Guid itemId, [FromRoute, Required] int width)
     {
         var item = _libraryManager.GetItemById(itemId);
 
         if (item != null)
         {
-            var path = VideoProcessor.GetExistingBifPath(item, _fileSystem, width);
+            var path = VideoProcessor.GetExistingTilesPlaylistPath(item, _fileSystem, width);
             if (path != null)
             {
                 return PhysicalFile(path, MediaTypeNames.Application.Octet);
             }
             else if (_config.OnDemandGeneration && _config.WidthResolutions.Contains(width))
             {
-                new VideoProcessor(_loggerFactory, _loggerFactory.CreateLogger<VideoProcessor>(), _mediaEncoder, _configurationManager, _fileSystem, _appPaths, _libraryMonitor, _encodingHelper)
+                _ = new VideoProcessor(_loggerFactory, _loggerFactory.CreateLogger<VideoProcessor>(), _mediaEncoder, _configurationManager, _fileSystem, _appPaths, _libraryMonitor, _encodingHelper)
                     .Run(item, CancellationToken.None);
                 return StatusCode(503);
+            }
+        }
+
+        return NotFound();
+    }
+
+    /// <summary>
+    /// Gets file data for a video.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="width">Width resolution of tiles.</param>
+    /// <response code="200">Tile successfully found and returned.</response>
+    /// <response code="404">Tiles not found.</response>
+    /// <returns>Associated jpeg tile file or <see cref="NotFoundResult"/>.</returns>
+    [HttpGet("{itemId}/{width}/{tileId}.jpg")]
+    [Authorize(Policy = "DefaultAuthorization")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    [Produces(MediaTypeNames.Image.Jpeg)]
+    public ActionResult GetTile([FromRoute, Required] Guid itemId, [FromRoute, Required] int tileId, [FromRoute, Required] int width)
+    {
+        var item = _libraryManager.GetItemById(itemId);
+
+        if (item != null)
+        {
+            var path = VideoProcessor.GetExistingTilePath(item, _fileSystem, width, tileId);
+            if (path != null)
+            {
+                return PhysicalFile(path, MediaTypeNames.Application.Octet);
             }
         }
 

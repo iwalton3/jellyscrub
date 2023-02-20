@@ -1,8 +1,8 @@
 let basePath = document.currentScript?.getAttribute('src')?.replace('Trickplay/ClientScript', '') ?? '/';
 
-const JELLYSCRUB_GUID = 'a84a949d-4b73-4099-aacb-8341b4da17ba';
+const JELLYSCRUB_GUID = 'aa2da09c-b2cf-4897-a746-e3bc885c8868';
 const MANIFEST_ENDPOINT = basePath + 'Trickplay/{itemId}/GetManifest';
-const BIF_ENDPOINT = basePath + 'Trickplay/{itemId}/{width}/GetBIF';
+const TILE_ENDPOINT = basePath + 'Trickplay/{itemId}/{width}/{tileId}.jpg';
 const RETRY_INTERVAL = 60_000;  // ms (1 minute)
 
 let mediaSourceId = null;
@@ -18,6 +18,7 @@ let currentTrickplayFrame = null;
 
 let hiddenSliderBubble = null;
 let customSliderBubble = null;
+let customThumbImgWrapper = null;
 let customThumbImg = null;
 let customChapterText = null;
 
@@ -61,8 +62,9 @@ let STYLE_TRICKPLAY_CONTAINER = true;
 if (STYLE_TRICKPLAY_CONTAINER) {
     let jellyscrubStyle = document.createElement('style');
     jellyscrubStyle.id = 'jellscrubStyle';
-    jellyscrubStyle.textContent += '.chapterThumbContainer {width: 15vw; overflow: hidden;}';
-    jellyscrubStyle.textContent += '.chapterThumb {width: 100%; display: block; height: unset; min-height: unset; min-width: unset;}';
+    jellyscrubStyle.textContent += '.chapterThumbContainer { overflow: hidden; }';
+    jellyscrubStyle.textContent += '.chapterThumbWrapper { overflow: hidden; position: relative; }';
+    jellyscrubStyle.textContent += '.chapterThumb { position: absolute; width: unset; min-width: unset; height: unset; min-height: unset; }';
     jellyscrubStyle.textContent += '.chapterThumbTextContainer {position: relative; background: rgb(38, 38, 38); text-align: center;}';
     jellyscrubStyle.textContent += '.chapterThumbText {margin: 0; opacity: unset; padding: unset;}';
     document.body.appendChild(jellyscrubStyle);
@@ -137,12 +139,15 @@ function loadVideoView() {
             let customThumbContainer = document.createElement('div');
             customThumbContainer.classList.add('chapterThumbContainer');
 
+            customThumbImgWrapper = document.createElement('div');
+            customThumbImgWrapper.classList.add('chapterThumbWrapper');
+            customThumbContainer.appendChild(customThumbImgWrapper);
+
             customThumbImg = document.createElement('img');
-            customThumbImg.classList.add('chapterThumb');
-            customThumbImg.src = 'data:,';
             // Fix for custom styles that set radius on EVERYTHING causing weird holes when both img and text container are rounded
             if (STYLE_TRICKPLAY_CONTAINER) customThumbImg.setAttribute('style', 'border-radius: unset !important;')
-            customThumbContainer.appendChild(customThumbImg);
+            customThumbImg.classList.add('chapterThumb');
+            customThumbImgWrapper.appendChild(customThumbImg);
 
             let customChapterTextContainer = document.createElement('div');
             customChapterTextContainer.classList.add('chapterThumbTextContainer');
@@ -168,6 +173,13 @@ function loadVideoView() {
     }
 }
 
+function clearTrickplayData() {
+    if (trickplayData && trickplayData.blobUrls && trickplayData.blobUrls.length > 0) {
+        trickplayData.blobUrls.forEach(url => URL.revokeObjectURL(url));
+    }
+    trickplayData = null;
+}
+
 function unloadVideoView() {
     debug('!!!!!!! Unloading video view !!!!!!!');
 
@@ -181,7 +193,7 @@ function unloadVideoView() {
 
     hasFailed = false;
     trickplayManifest = null;
-    trickplayData = null;
+    clearTrickplayData();
     currentTrickplayFrame = null;
 
     hiddenSliderBubble = null;
@@ -246,7 +258,7 @@ function changeCurrentMedia() {
     // Reset trickplay-related variables
     hasFailed = false;
     trickplayManifest = null;
-    trickplayData = null;
+    clearTrickplayData();
     currentTrickplayFrame = null;
 
     // Set bubble html back to default
@@ -257,117 +269,6 @@ function changeCurrentMedia() {
     // will be triggered by the playback request interception
     if (!hasFailed && !trickplayData && mediaSourceId && mediaRuntimeTicks && embyAuthValue
         && osdPositionSlider && hiddenSliderBubble && customSliderBubble) mainScriptExecution();
-}
-
-/*
- * Indexed UInt8Array
- */
-
-function Indexed8Array(buffer) {
-    this.index = 0;
-    this.array = new Uint8Array(buffer);
-}
-
-Indexed8Array.prototype.read = function(len) {
-    if (len) {
-        readData = [];
-        for (let i = 0; i < len; i++) {
-            readData.push(this.array[this.index++]);
-        }
-
-        return readData;
-    } else {
-        return this.array[this.index++];
-    }
-}
-
-Indexed8Array.prototype.readArbitraryInt = function(len) {
-    let num = 0;
-    for (let i = 0; i < len; i++) {
-        num += this.read() << (i << 3);
-    }
-
-    return num;
-}
-
-Indexed8Array.prototype.readInt32 = function() {
-    return this.readArbitraryInt(4);
-}
-
-/*
- * Code for BIF/Trickplay frames
- */
-
-const BIF_MAGIC_NUMBERS = [0x89, 0x42, 0x49, 0x46, 0x0D, 0x0A, 0x1A, 0x0A];
-const SUPPORTED_BIF_VERSION = 0;
-
-function trickplayDecode(buffer) {
-    info(`BIF file size: ${(buffer.byteLength / 1_048_576).toFixed(2)}MB`);
-
-
-    let bifArray = new Indexed8Array(buffer);
-    for (let i = 0; i < BIF_MAGIC_NUMBERS.length; i++) {
-        if (bifArray.read() != BIF_MAGIC_NUMBERS[i]) {
-            error('Attempted to read invalid bif file.');
-            error(buffer);
-            return null;
-        }
-    }
-
-    let bifVersion = bifArray.readInt32();
-    if (bifVersion != SUPPORTED_BIF_VERSION) {
-        error(`Client only supports BIF v${SUPPORTED_BIF_VERSION} but file is v${bifVersion}`);
-        return null;
-    }
-
-    let bifImgCount = bifArray.readInt32();
-    info(`BIF image count: ${bifImgCount}`);
-
-    let timestampMultiplier = bifArray.readInt32();
-    if (timestampMultiplier == 0) timestampMultiplier = 1000;
-
-     bifArray.read(44); // Reserved
-
-    let bifIndex = [];
-    for (let i = 0; i < bifImgCount; i++) {
-        bifIndex.push({
-            timestamp: bifArray.readInt32(),
-            offset: bifArray.readInt32()
-        });
-    }
-
-    let bifImages = [];
-    for (let i = 0; i < bifIndex.length; i++) {
-        indexEntry = bifIndex[i];
-        timestamp = indexEntry.timestamp;
-        offset = indexEntry.offset;
-        nextOffset = bifIndex[i + 1] ? bifIndex[i + 1].offset : buffer.length;
-
-        bifImages[timestamp] = buffer.slice(offset, nextOffset);
-    }
-    
-    return {
-        version: bifVersion,
-        timestampMultiplier: timestampMultiplier,
-        imageCount: bifImgCount,
-        images: bifImages
-    };
-}
-
-function getTrickplayFrame(playerTimestamp, data) {
-    multiplier = data.timestampMultiplier;
-    images = data.images;
-
-    frame = Math.floor(playerTimestamp / multiplier);
-    return images[frame];
-}
-
-function getTrickplayFrameUrl(playerTimestamp, data) {
-    let bufferImage = getTrickplayFrame(playerTimestamp, data);
-
-    if (bufferImage) {
-        return URL.createObjectURL(new Blob([bufferImage], {type: 'image/jpeg'}));
-    }
 }
 
 /*
@@ -393,25 +294,13 @@ function manifestLoad() {
     }
 }
 
-function bifLoad() {
-    if (this.status == 200) {
-        if (!this.response) {
-            error(`Received 200 status from BIF endpoint but a null response. (RESPONSE URL: ${this.responseURL})`);
-            hasFailed = true;
-            return;
-        }
+function loadTiles(blobUrls, config) {
+    trickplayData = {
+        BlobUrls: blobUrls,
+        ...config
+    };
 
-        trickplayData = trickplayDecode(this.response);
-        setTimeout(mainScriptExecution, 0); // Hacky way of avoiding using fetch/await by returning then calling function again
-    } else if (this.status == 503) {
-        info(`Received 503 from server -- still generating BIF. Waiting ${RETRY_INTERVAL}ms then retrying...`);
-        setTimeout(mainScriptExecution, RETRY_INTERVAL);
-    } else {
-        if (this.status == 404) error('Requested BIF file listed in manifest but server returned 404 not found.');
-
-        debug(`Failed to get BIF file: url ${this.responseURL}, error ${this.status}, ${this.responseText}`)
-        hasFailed = true;
-    }
+    mainScriptExecution();
 }
 
 function mainScriptExecution() {
@@ -435,31 +324,34 @@ function mainScriptExecution() {
         // Determine which width to use
         // Prefer highest resolution @ less than 20% of total screen resolution width
         let resolutions = trickplayManifest.WidthResolutions;
+        if (resolutions) resolutions = Object.values(resolutions);
 
-        if (resolutions && resolutions.length > 0)
+        if (resolutions.length > 0)
         {
-            resolutions.sort();
+            resolutions.sort((a, b) => a.Width - b.Width);
             let screenWidth = window.screen.width * window.devicePixelRatio;
-            let width = resolutions[0];
+            let config = resolutions[0];
 
             // Prefer bigger trickplay images granted they are less than or equal to 20% of total screen width
             for (let i = 1; i < resolutions.length; i++)
             {
-                let biggerWidth = resolutions[i];
-                if (biggerWidth <= (screenWidth * .2)) width = biggerWidth;
+                let biggerConfig = resolutions[i];
+                if (biggerConfig.Width <= (screenWidth * .2)) config = biggerConfig;
             }
-            info(`Requesting BIF file with width ${width}`);
+            info(`Requesting tiles with width ${config.Width}`);
 
-            let bifUrl = BIF_ENDPOINT.replace('{itemId}', mediaSourceId).replace('{width}', width);
-            let bifRequest = new XMLHttpRequest();
-            bifRequest.responseType = 'arraybuffer';
-            bifRequest.addEventListener('load', bifLoad);
+            let baseTileUrl = TILE_ENDPOINT.replace('{itemId}', mediaSourceId).replace('{width}', config.Width);
+            let tileCount = Math.ceil(config.TileCount / config.TileWidth / config.TileHeight);
+            const urls = [];
+            for (let i = 1; i <= tileCount; i++) {
+                urls.push(baseTileUrl.replace('{tileId}', i));
+            }
 
-            bifRequest.open('GET', bifUrl);
-            bifRequest.setRequestHeader(EMBY_AUTH_HEADER, embyAuthValue);
+            Promise.all(urls.map(url => originalFetch(url, {headers: {[EMBY_AUTH_HEADER]: embyAuthValue}})))
+            .then(responses => Promise.all(responses.map(res => res.blob())))
+            .then(blobs => loadTiles(blobs.map(blob => URL.createObjectURL(blob)), config))
+            .catch(error => { hasFailed = true; error(`Failed to load tiles: ${error}`); });
 
-            debug(`Requesting BIF @ ${bifUrl}`);
-            bifRequest.send();
             return;
         } else {
             error(`Have manifest file with no listed resolutions: ${trickplayManifest}`);
@@ -476,17 +368,23 @@ function mainScriptExecution() {
 function getBubbleHtmlTrickplay(sliderValue) {
     //showOsd();
 
-    let currentTicks = mediaRuntimeTicks * (sliderValue / 100);
-    let currentTimeMs = currentTicks / 10_000
-    let imageSrc = getTrickplayFrameUrl(currentTimeMs, trickplayData);
+    const currentTicks = mediaRuntimeTicks * (sliderValue / 100);
+    const currentTimeMs = currentTicks / 10_000
+    const currentTile = Math.floor(currentTimeMs / trickplayData.Interval);
+    const tileSize = trickplayData.TileWidth * trickplayData.TileHeight;
+    const tileOffset = currentTile % tileSize;
+    const currentTileSet = Math.floor(currentTile / tileSize);
+    const tileOffsetX = tileOffset % trickplayData.TileWidth;
+    const tileOffsetY = Math.floor(tileOffset / trickplayData.TileWidth);
+    const imageSrc = trickplayData.BlobUrls[currentTileSet];
 
-    if (imageSrc) {
-        if (currentTrickplayFrame) URL.revokeObjectURL(currentTrickplayFrame);
-        currentTrickplayFrame = imageSrc;
+    customThumbImg.src = imageSrc;
+    customThumbImgWrapper.style.height = `${trickplayData.Height}px`;
+    customThumbImgWrapper.style.width = `${trickplayData.Width}px`;
+    customThumbImg.style.left = `-${tileOffsetX * trickplayData.Width}px`;
+    customThumbImg.style.top = `-${tileOffsetY * trickplayData.Height}px`;
+    customChapterText.textContent = getDisplayRunningTime(currentTicks);
 
-        customThumbImg.src = imageSrc;
-        customChapterText.textContent = getDisplayRunningTime(currentTicks);
-    }
 
     return `<div style="min-width: ${customSliderBubble.offsetWidth}px; max-height: 0px"></div>`;
 }

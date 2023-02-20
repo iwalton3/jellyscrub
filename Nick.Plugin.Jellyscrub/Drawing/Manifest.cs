@@ -3,5 +3,5 @@
 public class Manifest
 {
     public string? Version { get; set; }
-    public HashSet<int>? WidthResolutions { get; set; }
+    public Dictionary<int, TileManifest>? WidthResolutions { get; set; }
 }

@@ -15,10 +15,10 @@ using Nick.Plugin.Jellyscrub.Configuration;
 namespace Nick.Plugin.Jellyscrub.Providers;
 
 /// <summary>
-/// Class BIFMetadataProvider. Doen't actually provide metadata but is used to
-/// generate BIF files on library scan.
+/// Class TilesMetadataProvider. Doen't actually provide metadata but is used to
+/// generate Tiles files on library scan.
 /// </summary>
-public class BIFMetadataProvider : ICustomMetadataProvider<Episode>,
+public class TilesMetadataProvider : ICustomMetadataProvider<Episode>,
     ICustomMetadataProvider<MusicVideo>,
     ICustomMetadataProvider<Movie>,
     ICustomMetadataProvider<Video>,
@@ -26,7 +26,7 @@ public class BIFMetadataProvider : ICustomMetadataProvider<Episode>,
     IHasOrder,
     IForcedProvider
 {
-    private readonly ILogger<BIFMetadataProvider> _logger;
+    private readonly ILogger<TilesMetadataProvider> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IFileSystem _fileSystem;
     private readonly IApplicationPaths _appPaths;
@@ -35,8 +35,8 @@ public class BIFMetadataProvider : ICustomMetadataProvider<Episode>,
     private readonly IServerConfigurationManager _configurationManager;
     private readonly EncodingHelper _encodingHelper;
 
-    public BIFMetadataProvider(
-        ILogger<BIFMetadataProvider> logger,
+    public TilesMetadataProvider(
+        ILogger<TilesMetadataProvider> logger,
         ILoggerFactory loggerFactory,
         IFileSystem fileSystem,
         IApplicationPaths appPaths,
@@ -168,7 +168,7 @@ public class BIFMetadataProvider : ICustomMetadataProvider<Episode>,
                     break;
                 default:
                 case MetadataScanBehavior.NonBlocking:
-                    videoProcessor.Run(item, cancellationToken);
+                    _ = videoProcessor.Run(item, cancellationToken);
                     break;
             }
         }

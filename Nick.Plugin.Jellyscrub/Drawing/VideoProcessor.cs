@@ -9,6 +9,7 @@ using Nick.Plugin.Jellyscrub.Configuration;
 using System.Text.Json;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Configuration;
+using SkiaSharp;
 
 namespace Nick.Plugin.Jellyscrub.Drawing;
 
@@ -40,7 +41,7 @@ public class VideoProcessor
     }
 
     /*
-     * Entry point to tell VideoProcessor to generate BIF from item
+     * Entry point to tell VideoProcessor to generate preview images from item
      */
     public async Task Run(BaseItem item, CancellationToken cancellationToken)
     {
@@ -59,32 +60,40 @@ public class VideoProcessor
                 if (!item.Id.Equals(Guid.Parse(mediaSource.Id))) continue;
 
                 cancellationToken.ThrowIfCancellationRequested();
-                await Run(item, mediaSource, width, _config.Interval, cancellationToken).ConfigureAwait(false);
+
+                var config = new TileManifest{
+                    Width = width,
+                    TileWidth = _config.TileWidth,
+                    TileHeight = _config.TileHeight,
+                    Interval = _config.Interval,
+                };
+                await Run(item, mediaSource, config, cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    private async Task Run(BaseItem item, MediaSourceInfo mediaSource, int width, int interval, CancellationToken cancellationToken)
+    private async Task Run(BaseItem item, MediaSourceInfo mediaSource, TileManifest config, CancellationToken cancellationToken)
     {
-        if (!HasBif(item, _fileSystem, width))
+        if (!HasTiles(item, _fileSystem, config.Width))
         {
-            await BifWriterSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await TilesWriterSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
-                if (!HasBif(item, _fileSystem, width))
+                if (!HasTiles(item, _fileSystem, config.Width))
                 {
-                    await CreateBif(item, width, interval, mediaSource, cancellationToken).ConfigureAwait(false);
-                    await CreateManifest(item, width).ConfigureAwait(false);
+                    // Note: CreateTiles updates the config with additional information
+                    await CreateTiles(item, config, mediaSource, cancellationToken).ConfigureAwait(false);
+                    await CreateManifest(item, config).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error while creating BIF file");
+                _logger.LogError(ex, "Error while creating preview images");
             }
             finally
             {
-                BifWriterSemaphore.Release();
+                TilesWriterSemaphore.Release();
             }
         }
     }
@@ -126,12 +135,12 @@ public class VideoProcessor
     /*
      * Manifest Creation
      */
-    private async Task CreateManifest(BaseItem item, int width)
+    private async Task CreateManifest(BaseItem item, TileManifest config)
     {
         // Create Manifest object with new resolution
         Manifest newManifest = new Manifest() {
             Version = JellyscrubPlugin.Instance!.Version.ToString(),
-            WidthResolutions = new HashSet<int> { width }
+            WidthResolutions = new Dictionary<int, TileManifest>() { { config.Width, config } }
         };
 
         // If a Manifest object already exists, combine resolutions
@@ -143,7 +152,7 @@ public class VideoProcessor
 
             if (oldManifest != null && oldManifest.WidthResolutions != null)
             {
-                newManifest.WidthResolutions = newManifest.WidthResolutions.Union(oldManifest.WidthResolutions).ToHashSet();
+                newManifest.WidthResolutions[config.Width] = config;
             }
         }
 
@@ -154,54 +163,68 @@ public class VideoProcessor
     }
 
     /*
-     * Methods for getting storage paths of BIFs
+     * Methods for getting storage paths of preview images
      */
-    private bool HasBif(BaseItem item, IFileSystem fileSystem, int width)
+    private bool HasTiles(BaseItem item, IFileSystem fileSystem, int width)
     {
-        return !string.IsNullOrWhiteSpace(GetExistingBifPath(item, fileSystem, width));
+        return !string.IsNullOrWhiteSpace(GetExistingTilesPath(item, fileSystem, width));
     }
 
-    public static string? GetExistingBifPath(BaseItem item, IFileSystem fileSystem, int width)
+    public static string? GetExistingTilesPath(BaseItem item, IFileSystem fileSystem, int width)
     {
-        var path = JellyscrubPlugin.Instance!.Configuration.LocalMediaFolderSaving ? GetLocalBifPath(item, width) : GetInternalBifPath(item, width);
+        var path = JellyscrubPlugin.Instance!.Configuration.LocalMediaFolderSaving ? GetLocalTilesPath(item, width) : GetInternalTilesPath(item, width);
+
+        return fileSystem.DirectoryExists(path) ? path : null;
+    }
+
+    public static string? GetExistingTilesPlaylistPath(BaseItem item, IFileSystem fileSystem, int width)
+    {
+        var path = Path.Join(GetExistingTilesPath(item, fileSystem, width), $"tiles.m3u8");
 
         return fileSystem.FileExists(path) ? path : null;
     }
 
-    private static string GetNewBifPath(BaseItem item, int width)
+    public static string? GetExistingTilePath(BaseItem item, IFileSystem fileSystem, int width, int tileId)
     {
-        return JellyscrubPlugin.Instance!.Configuration.LocalMediaFolderSaving ? GetLocalBifPath(item, width) : GetInternalBifPath(item, width);
+        var path = Path.Join(GetExistingTilesPath(item, fileSystem, width), $"{tileId}.jpg");
+
+        return fileSystem.FileExists(path) ? path : null;
     }
 
-    private static string GetLocalBifPath(BaseItem item, int width)
+    private static string GetNewTilesPath(BaseItem item, int width)
+    {
+        return JellyscrubPlugin.Instance!.Configuration.LocalMediaFolderSaving ? GetLocalTilesPath(item, width) : GetInternalTilesPath(item, width);
+    }
+
+    private static string GetLocalTilesPath(BaseItem item, int width)
     {
         var folder = Path.Combine(item.ContainingFolderPath, "trickplay");
         var filename = Path.GetFileNameWithoutExtension(item.Path);
-        filename += "-" + width.ToString(CultureInfo.InvariantCulture) + ".bif";
+        filename += "-" + width.ToString(CultureInfo.InvariantCulture);
 
         return Path.Combine(folder, filename);
     }
 
-    private static string GetInternalBifPath(BaseItem item, int width)
+    private static string GetInternalTilesPath(BaseItem item, int width)
     {
-        return Path.Combine(item.GetInternalMetadataPath(), "trickplay", width.ToString(CultureInfo.InvariantCulture) + ".bif");
+        return Path.Combine(item.GetInternalMetadataPath(), "trickplay", width.ToString(CultureInfo.InvariantCulture));
     }
 
     /*
-     * Bif Creation
+     * Tiles Creation
      */
-    private static readonly SemaphoreSlim BifWriterSemaphore = new SemaphoreSlim(1, 1);
+    private static readonly SemaphoreSlim TilesWriterSemaphore = new SemaphoreSlim(1, 1);
 
-    private Task CreateBif(BaseItem item, int width, int interval, MediaSourceInfo mediaSource, CancellationToken cancellationToken)
+    private Task CreateTiles(BaseItem item, TileManifest config, MediaSourceInfo mediaSource, CancellationToken cancellationToken)
     {
-        var path = GetNewBifPath(item, width);
+        var path = GetNewTilesPath(item, config.Width);
 
-        return CreateBif(path, width, interval, item, mediaSource, cancellationToken);
+        return CreateTiles(path, config, item, mediaSource, cancellationToken);
     }
 
-    private async Task CreateBif(string path, int width, int interval, BaseItem item, MediaSourceInfo mediaSource, CancellationToken cancellationToken)
+    private async Task CreateTiles(string path, TileManifest config, BaseItem item, MediaSourceInfo mediaSource, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Creating trickplay files at {0} width, for {1} [ID: {2}]", width, mediaSource.Path, item.Id);
+        _logger.LogInformation("Creating trickplay files at {0} width, for {1} [ID: {2}]", config.Width, mediaSource.Path, item.Id);
 
         var protocol = mediaSource.Protocol;
 
@@ -215,7 +238,7 @@ public class VideoProcessor
             var inputPath = mediaSource.Path;
 
             await _oldEncoder.ExtractVideoImagesOnInterval(inputPath, mediaSource.Container, videoStream, mediaSource, mediaSource.Video3DFormat,
-                    TimeSpan.FromMilliseconds(interval), tempDirectory, "img_", width, cancellationToken)
+                    TimeSpan.FromMilliseconds(config.Interval), tempDirectory, "img_", config.Width, cancellationToken)
                     .ConfigureAwait(false);
 
             var images = _fileSystem.GetFiles(tempDirectory, new string[] { ".jpg" }, false, false)
@@ -223,27 +246,29 @@ public class VideoProcessor
                 .OrderBy(i => i.FullName)
                 .ToList();
 
-            if (images.Count == 0) throw new InvalidOperationException("Cannot make BIF file from 0 images.");
+            if (images.Count == 0) throw new InvalidOperationException("Cannot make preview images from 0 images.");
 
-            var bifTempPath = Path.Combine(tempDirectory, Guid.NewGuid().ToString("N"));
+            var tilesTempPath = Path.Combine(tempDirectory, Guid.NewGuid().ToString("N"));
 
-            using (var fs = new FileStream(bifTempPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-            {
-                await CreateBif(fs, images, interval).ConfigureAwait(false);
-            }
+            await CreateTiles(tilesTempPath, images, config).ConfigureAwait(false);
 
             _libraryMonitor.ReportFileSystemChangeBeginning(path);
 
             try
             {
-                Directory.CreateDirectory(Directory.GetParent(path).FullName);
-                File.Copy(bifTempPath, path, true);
+                Directory.CreateDirectory(Directory.GetParent(path)!.FullName);
+
+                // replace existing tile sets if they exist
+                if (Directory.Exists(path))
+                    Directory.Delete(path, true);
+
+                MoveDirectory(tilesTempPath, path);
 
                 // Create .ignore file so trickplay folder is not picked up as a season when TV folder structure is improper.
-                var ignorePath = Path.Combine(Directory.GetParent(path).FullName, ".ignore");
+                var ignorePath = Path.Combine(Directory.GetParent(path)!.FullName, ".ignore");
                 if (!File.Exists(ignorePath)) await File.Create(ignorePath).DisposeAsync();
 
-                _logger.LogInformation("Finished creation of trickplay file {0}", path);
+                _logger.LogInformation("Finished creation of trickplay tiles {0}", path);
             }
             finally
             {
@@ -256,61 +281,75 @@ public class VideoProcessor
         }
     }
 
-    public async Task CreateBif(Stream stream, List<FileSystemMetadata> images, int interval)
+    public async Task CreateTiles(string directoryPath, List<FileSystemMetadata> images, TileManifest config)
     {
-        var magicNumber = new byte[] { 0x89, 0x42, 0x49, 0x46, 0x0d, 0x0a, 0x1a, 0x0a };
-        await stream.WriteAsync(magicNumber, 0, magicNumber.Length);
+        Directory.CreateDirectory(directoryPath);
 
-        // Version
-        var bytes = GetBytes(0);
-        await stream.WriteAsync(bytes, 0, bytes.Length);
+        var i = 0;
+        config.TileCount = images.Count;
 
-        // Image count
-        bytes = GetBytes(images.Count);
-        await stream.WriteAsync(bytes, 0, bytes.Length);
+        using StreamWriter tilePlaylist = new StreamWriter(Path.Join(directoryPath, "tiles.m3u8"));
+        int totalImageCount = (int) Math.Ceiling((decimal)images.Count / config.TileWidth / config.TileHeight);
+        await tilePlaylist.WriteAsync($"#EXTM3U\n#EXT-X-TARGETDURATION:{totalImageCount}\n#EXT-X-VERSION:7\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-IMAGES-ONLY\n\n");
 
-        // Interval in ms
-        bytes = GetBytes(interval);
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-
-        // Reserved
-        for (var i = 20; i <= 63; i++)
-        {
-            bytes = new byte[] { 0x00 };
-            await stream.WriteAsync(bytes, 0, bytes.Length);
+        var firstImg = SKBitmap.Decode(images[0].FullName);
+        if (firstImg == null) {
+            throw new Exception("Could not decode image data.");
         }
 
-        // Write the bif index
-        var index = 0;
-        long imageOffset = 64 + (8 * images.Count) + 8;
-
-        foreach (var img in images)
-        {
-            bytes = GetBytes(index);
-            await stream.WriteAsync(bytes, 0, bytes.Length);
-
-            bytes = GetBytes(imageOffset);
-            await stream.WriteAsync(bytes, 0, bytes.Length);
-
-            imageOffset += img.Length;
-
-            index++;
+        config.Height = firstImg.Height;
+        if (config.Width != firstImg.Width) {
+            throw new Exception("Image width does not match config width.");
         }
 
-        bytes = new byte[] { 0xff, 0xff, 0xff, 0xff };
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-
-        bytes = GetBytes(imageOffset);
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-
-        // Write the images
-        foreach (var img in images)
+        var imgNo = 1;
+        while (i < images.Count)
         {
-            using (var imgStream = new FileStream(img.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            var tileSet = new SKBitmap(config.Width * config.TileWidth, config.Height.Value * config.TileHeight);
+            var tileCount = 0;
+
+            using (var canvas = new SKCanvas(tileSet))
             {
-                await imgStream.CopyToAsync(stream).ConfigureAwait(false);
+                for (var y = 0; y < config.TileHeight; y++)
+                {
+                    for (var x = 0; x < config.TileWidth; x++)
+                    {
+                        if (i >= images.Count) break;
+
+                        var img = SKBitmap.Decode(images[i].FullName);
+                        if (img == null) {
+                            throw new Exception("Could not decode image data.");
+                        }
+
+                        if (config.Width != img.Width) {
+                            throw new Exception("Image width does not match config width.");
+                        }
+
+                        if (config.Height != img.Height) {
+                            throw new Exception("Image height does not match first image height.");
+                        }
+
+                        canvas.DrawBitmap(img, x * config.Width, y * config.Height.Value);
+                        tileCount++;
+                        i++;
+                    }
+                }
             }
+
+            var tileSetPath = Path.Combine(directoryPath, $"{imgNo}.jpg");
+            using (var stream = File.OpenWrite(tileSetPath))
+            {
+                tileSet.Encode(stream, SKEncodedImageFormat.Jpeg, _config.JpegQuality);
+            }
+
+            var tileSetDuration = Math.Ceiling((decimal)config.Interval*tileCount / 1000);
+            var tileDuration = Math.Ceiling((decimal)config.Interval / 1000);
+            await tilePlaylist.WriteAsync($"#EXTINF:{tileSetDuration},\n#EXT-X-TILES:RESOLUTION={config.Width}x{config.Height.Value},LAYOUT={config.TileWidth}x{config.TileHeight},DURATION={tileDuration}\n{imgNo}.jpg\n");
+
+            imgNo++;
         }
+
+        await tilePlaylist.WriteAsync("\n#EXT-X-ENDLIST\n");
     }
 
     /*
@@ -328,17 +367,16 @@ public class VideoProcessor
         }
     }
 
-    private byte[] GetBytes(int value)
+    private void MoveDirectory(string source, string destination)
     {
-        byte[] bytes = BitConverter.GetBytes(value);
-        if (!BitConverter.IsLittleEndian)
-            Array.Reverse(bytes);
-        return bytes;
-    }
-
-    private byte[] GetBytes(long value)
-    {
-        var intVal = Convert.ToInt32(value);
-        return GetBytes(intVal);
+        try {
+            Directory.Move(source, destination);
+        } catch (System.IO.IOException) {
+            // Cross device move requires a copy
+            Directory.CreateDirectory(destination);
+            foreach (string file in Directory.GetFiles(source))
+                File.Copy(file, Path.Join(destination, Path.GetFileName(file)), true);
+            Directory.Delete(source, true);
+        }
     }
 }

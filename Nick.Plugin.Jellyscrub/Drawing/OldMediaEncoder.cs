@@ -231,7 +231,7 @@ public class OldMediaEncoder
         }
         catch (Exception e)
         {
-            _logger.LogError("Unable to set process priority: {0} (will not prevent BIF generation!)", e.Message);
+            _logger.LogError("Unable to set process priority: {0} (will not prevent preview images generation!)", e.Message);
         }
 
         lock (_runningProcessesLock)
@@ -282,9 +282,9 @@ public class OldMediaEncoder
 
         public int? ExitCode { get; private set; }
 
-        private void OnProcessExited(object sender, EventArgs e)
+        private void OnProcessExited(object? sender, EventArgs e)
         {
-            var process = (Process)sender;
+            var process = (Process)sender!;
 
             HasExited = true;
 

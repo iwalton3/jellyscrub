@@ -3,7 +3,7 @@ Jellyscrub
 <img src="https://raw.githubusercontent.com/nicknsy/jellyscrub/main/logo/logo.png" width="500">
 
 ## About ##
-Jellyscrub is a plugin that generates "trickplay" (Roku .bif) files that are then interpreted by the client and used for bufferless scrubbing image previews.
+Jellyscrub is a plugin that generates "trickplay" (HLS EXT-X-TILES Tiled Previews) files that are then interpreted by the client and used for bufferless scrubbing image previews.
 
 The trickplay data for a 1:30hr movie with 320x180 thumbnails only takes about 6MB of data when generating an image every 10 seconds. Takes around one - four minutes to generate depending on computer hardware.
 

@@ -18,7 +18,7 @@ public class JellyscrubPlugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override string Name => "Jellyscrub";
 
     /// <inheritdoc />
-    public override Guid Id => Guid.Parse("a84a949d-4b73-4099-aacb-8341b4da17ba");
+    public override Guid Id => Guid.Parse("aa2da09c-b2cf-4897-a746-e3bc885c8868");
 
     /// <inheritdoc />
     public override string Description => "Smooth mouse-over video scrubbing previews.";
