@@ -4,17 +4,17 @@
         "name": "Jellyscrub for HLS",
         "overview": "Create HLS EXT-X-TILES Tiled Preview files for media to be used for trickplay scrubbing previews.",
         "description": "Smooth mouse-over video scrubbing previews.",
-        "owner": "Nick",
+        "owner": "Ian Walton",
         "category": "General",
         "imageUrl": "https://raw.githubusercontent.com/nicknsy/jellyscrub/main/logo/logo.png",
         "versions": [
             {
                 "version": "2.0.0.0",
-                "changelog": "- add -an -sn to ffmpeg command to stop audio/subtitle transcoding",
+                "changelog": "Switch to using HLS tiles instead of BIF images.",
                 "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/nicknsy/jellyscrub/releases/download/1.0.0.9/Jellyscrub-v1.0.0.9.zip",
-                "checksum": "80b4038a54fd0d8c47f27a8c7b7edd67",
-                "timestamp": "2023-02-15T11:27:00Z"
+                "sourceUrl": "https://github.com/iwalton3/jellyscrub/releases/download/2.0.0.0/Jellyscrub-v2.0.0.0.zip",
+                "checksum": "21e3cb2eee36e24de3f6e83879ade383",
+                "timestamp": "2023-02-20T03:14:22Z"
             }
         ]
     }
